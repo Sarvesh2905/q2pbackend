@@ -9,6 +9,13 @@ const salesContactRoutes = require("./routes/salesContactRoutes");
 const customerRoutes = require("./routes/customerRoutes");
 const buyerRoutes = require("./routes/buyerRoutes");
 const countryRoutes = require("./routes/countryRoutes");
+const productRoutes = require('./routes/productRoutes');
+const priceRoutes = require('./routes/priceRoutes');
+const geReferenceRoutes = require('./routes/geReferenceRoutes');
+const discountRoutes = require('./routes/discountRoutes');
+
+
+
 
 const app = express();
 
@@ -28,6 +35,10 @@ app.use("/api/sales-contacts", salesContactRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/buyers", buyerRoutes);
 app.use("/api/countries", countryRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/prices', priceRoutes);
+app.use('/api/ge-references', geReferenceRoutes);
+app.use('/api/discounts', discountRoutes);
 
 // ── Start server ───────────────────────────────────────
 const PORT = process.env.PORT || 5001;
