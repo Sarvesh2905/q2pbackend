@@ -13,8 +13,14 @@ const productRoutes = require('./routes/productRoutes');
 const priceRoutes = require('./routes/priceRoutes');
 const geReferenceRoutes = require('./routes/geReferenceRoutes');
 const discountRoutes = require('./routes/discountRoutes');
-
-
+const spclDiscountRoutes = require("./routes/spclDiscountRoutes");
+const endIndustryRoutes = require("./routes/endIndustryRoutes");
+const customerTypeRoutes = require("./routes/customerTypeRoutes");
+const statusMasterRoutes = require("./routes/statusMasterRoutes");
+const reasonRoutes = require("./routes/reasonRoutes");
+const timelineTargetRoutes = require("./routes/timelineTargetRoutes");
+const costPriceRoutes = require("./routes/costPriceRoutes");
+const enquiryRoutes = require("./routes/enquiryRoutes");
 
 
 const app = express();
@@ -39,6 +45,15 @@ app.use('/api/products', productRoutes);
 app.use('/api/prices', priceRoutes);
 app.use('/api/ge-references', geReferenceRoutes);
 app.use('/api/discounts', discountRoutes);
+app.use("/api/spcl-discounts", spclDiscountRoutes);
+app.use("/api/end-industries", endIndustryRoutes);
+app.use("/api/customer-types", customerTypeRoutes);
+app.use("/api/status-master", statusMasterRoutes);
+app.use("/api/reasons", reasonRoutes);
+app.use("/api/timeline-target", timelineTargetRoutes);
+app.use("/api/cost-price", costPriceRoutes);
+app.use("/api/enquiry", enquiryRoutes);
+
 
 // ── Start server ───────────────────────────────────────
 const PORT = process.env.PORT || 5001;
