@@ -2,21 +2,44 @@ const db = require("../config/db");
 
 const canModify = (role) => role === "Manager" || role === "Admin";
 
-/* ── Check unique ── */
-const checkExists = async (req, res) => {
-  const { custtype } = req.query;
-  if (!custtype) return res.json({ exists: false });
+/* ══════════════════════════════════════
+   GET /api/customer-types
+══════════════════════════════════════ */
+const listCustomerTypes = async (req, res) => {
   try {
     const [rows] = await db.execute(
-      `SELECT Sno FROM quote_data
+      `SELECT Sno, Data, Status
+       FROM quote_data
        WHERE Type = 'Customertype'
-       AND LOWER(REPLACE(TRIM(Data),' ','')) = LOWER(REPLACE(TRIM(?),' ',''))`,
-      [custtype],
+       ORDER BY Data ASC`,
     );
+    return res.json({ data: rows });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+/* ══════════════════════════════════════
+   GET /api/customer-types/check?value=
+══════════════════════════════════════ */
+const checkExists = async (req, res) => {
+  const { value, sno } = req.query;
+  if (!value) return res.json({ exists: false });
+  try {
+    const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+    let q = `SELECT Sno FROM quote_data
+             WHERE Type = 'Customertype'
+             AND LOWER(REPLACE(TRIM(Data),' ','')) = ?`;
+    const params = [normalized];
+    if (sno) {
+      q += " AND Sno <> ?";
+      params.push(parseInt(sno));
+    }
+    const [rows] = await db.execute(q, params);
     if (rows.length > 0)
       return res.json({
         exists: true,
-        message: "This Customer Type already exists.",
+        message: "Customer type already exists.",
       });
     return res.json({ exists: false });
   } catch (err) {
@@ -24,54 +47,36 @@ const checkExists = async (req, res) => {
   }
 };
 
-/* ── List all A-Z ── */
-const listCustomerTypes = async (req, res) => {
-  try {
-    const [rows] = await db.execute(
-      `SELECT Sno, Data AS Customer_Type, Status
-       FROM quote_data
-       WHERE Type = 'Customertype'
-       ORDER BY Data ASC`,
-    );
-    return res.json({ data: rows, total: rows.length });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ message: "Server error", error: err.message });
-  }
-};
-
-/* ── Create ── */
+/* ══════════════════════════════════════
+   POST /api/customer-types
+══════════════════════════════════════ */
 const createCustomerType = async (req, res) => {
   if (!canModify(req.user?.role))
     return res.status(403).json({ message: "Not authorized" });
 
-  let { custtype } = req.body;
-  if (!custtype || !custtype.trim())
-    return res.status(400).json({ message: "Customer Type is required." });
+  let { Data } = req.body;
+  if (!Data?.trim())
+    return res.status(400).json({ message: "Customer type is required." });
 
-  custtype = custtype.trim().toUpperCase();
+  Data = Data.trim().toUpperCase();
 
   try {
-    // Unique check
     const [existing] = await db.execute(
       `SELECT Sno FROM quote_data
        WHERE Type = 'Customertype'
-       AND LOWER(REPLACE(TRIM(Data),' ','')) = LOWER(REPLACE(TRIM(?),' ',''))`,
-      [custtype],
+       AND LOWER(REPLACE(TRIM(Data),' ','')) = LOWER(REPLACE(?,' ',''))`,
+      [Data],
     );
     if (existing.length > 0)
-      return res
-        .status(400)
-        .json({ message: "This Customer Type already exists." });
+      return res.status(400).json({ message: "Customer type already exists." });
 
-    // Auto Sno (no AUTO_INCREMENT on this table)
-    const [maxRows] = await db.execute("SELECT MAX(Sno) AS m FROM quote_data");
-    const nextSno = (maxRows[0].m || 0) + 1;
+    const [maxRow] = await db.execute(`SELECT MAX(Sno) AS m FROM quote_data`);
+    const nextSno = (maxRow[0].m || 0) + 1;
 
     await db.execute(
-      `INSERT INTO quote_data (Sno, Data, Type, Status) VALUES (?, ?, 'Customertype', 'Active')`,
-      [nextSno, custtype],
+      `INSERT INTO quote_data (Sno, Data, Type, Status)
+       VALUES (?, ?, 'Customertype', 'Active')`,
+      [nextSno, Data],
     );
     return res.json({
       success: true,
@@ -82,30 +87,27 @@ const createCustomerType = async (req, res) => {
   }
 };
 
-/* ── Toggle Status ── */
+/* ══════════════════════════════════════
+   PATCH /api/customer-types/:sno/status
+══════════════════════════════════════ */
 const toggleStatus = async (req, res) => {
   if (!canModify(req.user?.role))
     return res.status(403).json({ message: "Not authorized" });
 
   const sno = parseInt(req.params.sno, 10);
-  const { status } = req.body;
-
-  if (!["Active", "Inactive"].includes(status))
-    return res.status(400).json({ message: "Invalid status value." });
-
   try {
     const [rows] = await db.execute(
-      `SELECT Sno FROM quote_data WHERE Sno = ? AND Type = 'Customertype'`,
+      `SELECT Status FROM quote_data WHERE Sno = ? AND Type = 'Customertype'`,
       [sno],
     );
-    if (rows.length === 0)
-      return res.status(404).json({ message: "Not found" });
+    if (!rows.length) return res.status(404).json({ message: "Not found" });
 
+    const next = rows[0].Status === "Active" ? "Inactive" : "Active";
     await db.execute(`UPDATE quote_data SET Status = ? WHERE Sno = ?`, [
-      status,
+      next,
       sno,
     ]);
-    return res.json({ success: true, status });
+    return res.json({ success: true, status: next });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
