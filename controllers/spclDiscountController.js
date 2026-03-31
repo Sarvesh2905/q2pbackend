@@ -2,17 +2,20 @@ const db = require("../config/db");
 
 const canModify = (role) => role === "Manager" || role === "Admin";
 
-/* ── Customers dropdown (from customer table) ── */
+/* ── Customers dropdown ──
+   FIX 1: corrected column names customer_name + Location
+          (were Customername + Division which don't exist) */
 const getCustomers = async (req, res) => {
   try {
     const [rows] = await db.execute(
-      `SELECT Customername, Division FROM customer
-       WHERE status = 'Active' ORDER BY Customername ASC`,
+      `SELECT customer_name, Location FROM customer
+       WHERE status = 'Active'
+       ORDER BY customer_name ASC`,
     );
     return res.json(
       rows.map((r) => ({
-        name: r.Customername,
-        division: r.Division || "",
+        name: r.customer_name,
+        division: r.Location || "",
       })),
     );
   } catch (err) {
@@ -64,16 +67,15 @@ const createSpclDiscount = async (req, res) => {
     return res.status(400).json({ message: "Name is required." });
 
   try {
-    // Unique check
     const [existing] = await db.execute(
       `SELECT Sno FROM spcl_discount
        WHERE LOWER(REPLACE(TRIM(Name),' ','')) = LOWER(REPLACE(TRIM(?),' ',''))`,
       [Name],
     );
     if (existing.length > 0)
-      return res
-        .status(400)
-        .json({ message: "Special discount with this name already exists." });
+      return res.status(400).json({
+        message: "Special discount with this name already exists.",
+      });
 
     const [maxRows] = await db.execute(
       "SELECT MAX(Sno) AS m FROM spcl_discount",
@@ -96,7 +98,8 @@ const createSpclDiscount = async (req, res) => {
   }
 };
 
-/* ── Toggle status (with open-quote guard) ── */
+/* ── Toggle status (with open-quote guard) ──
+   FIX 2: corrected table name quote_data (was quotedata) */
 const toggleStatus = async (req, res) => {
   if (!canModify(req.user?.role))
     return res.status(403).json({ message: "Not authorized" });
@@ -112,7 +115,6 @@ const toggleStatus = async (req, res) => {
 
     const next = rows[0].status === "Active" ? "Inactive" : "Active";
 
-    // If deactivating — check open quotes
     if (next === "Inactive") {
       const [openQuotes] = await db.execute(
         `SELECT DISTINCT q.Quotenumber
@@ -121,7 +123,7 @@ const toggleStatus = async (req, res) => {
            SELECT Name FROM spcl_discount WHERE Sno = ?
          )
          AND q.Opportunitystage IN (
-           SELECT Data FROM quotedata WHERE Sno IN (22,24,27,29,30)
+           SELECT Data FROM quote_data WHERE Sno IN (22,24,27,29,30)
          )`,
         [sno],
       );

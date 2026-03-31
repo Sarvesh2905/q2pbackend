@@ -2,13 +2,12 @@ const db = require("../config/db");
 
 const canModify = (role) => role === "Manager" || role === "Admin";
 
-/* ══════════════════════════════════════
-   GET /api/customer-types
-══════════════════════════════════════ */
+/* GET /api/customer-types
+   FIX A: alias Data AS Customer_Type so JSX r.Customer_Type works */
 const listCustomerTypes = async (req, res) => {
   try {
     const [rows] = await db.execute(
-      `SELECT Sno, Data, Status
+      `SELECT Sno, Data AS Customer_Type, Status
        FROM quote_data
        WHERE Type = 'Customertype'
        ORDER BY Data ASC`,
@@ -19,14 +18,13 @@ const listCustomerTypes = async (req, res) => {
   }
 };
 
-/* ══════════════════════════════════════
-   GET /api/customer-types/check?value=
-══════════════════════════════════════ */
+/* GET /api/customer-types/check?custtype=
+   FIX B: was reading req.query.value — JSX sends req.query.custtype */
 const checkExists = async (req, res) => {
-  const { value, sno } = req.query;
-  if (!value) return res.json({ exists: false });
+  const { custtype, sno } = req.query;
+  if (!custtype) return res.json({ exists: false });
   try {
-    const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+    const normalized = custtype.trim().toLowerCase().replace(/\s+/g, "");
     let q = `SELECT Sno FROM quote_data
              WHERE Type = 'Customertype'
              AND LOWER(REPLACE(TRIM(Data),' ','')) = ?`;
@@ -47,25 +45,24 @@ const checkExists = async (req, res) => {
   }
 };
 
-/* ══════════════════════════════════════
-   POST /api/customer-types
-══════════════════════════════════════ */
+/* POST /api/customer-types
+   FIX C: was reading req.body.Data — JSX sends req.body.custtype */
 const createCustomerType = async (req, res) => {
   if (!canModify(req.user?.role))
     return res.status(403).json({ message: "Not authorized" });
 
-  let { Data } = req.body;
-  if (!Data?.trim())
+  let { custtype } = req.body;
+  if (!custtype?.trim())
     return res.status(400).json({ message: "Customer type is required." });
 
-  Data = Data.trim().toUpperCase();
+  custtype = custtype.trim().toUpperCase();
 
   try {
     const [existing] = await db.execute(
       `SELECT Sno FROM quote_data
        WHERE Type = 'Customertype'
        AND LOWER(REPLACE(TRIM(Data),' ','')) = LOWER(REPLACE(?,' ',''))`,
-      [Data],
+      [custtype],
     );
     if (existing.length > 0)
       return res.status(400).json({ message: "Customer type already exists." });
@@ -76,7 +73,7 @@ const createCustomerType = async (req, res) => {
     await db.execute(
       `INSERT INTO quote_data (Sno, Data, Type, Status)
        VALUES (?, ?, 'Customertype', 'Active')`,
-      [nextSno, Data],
+      [nextSno, custtype],
     );
     return res.json({
       success: true,
@@ -87,9 +84,7 @@ const createCustomerType = async (req, res) => {
   }
 };
 
-/* ══════════════════════════════════════
-   PATCH /api/customer-types/:sno/status
-══════════════════════════════════════ */
+/* PATCH /api/customer-types/:sno/status */
 const toggleStatus = async (req, res) => {
   if (!canModify(req.user?.role))
     return res.status(403).json({ message: "Not authorized" });

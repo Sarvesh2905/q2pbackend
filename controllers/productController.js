@@ -2,13 +2,12 @@ const db = require("../config/db");
 
 const canModify = (role) => role === "Manager" || role === "Admin";
 
-/* ══════════════════════════════════════
-   GET /api/products
-══════════════════════════════════════ */
+// GET /api/products
 const listProducts = async (req, res) => {
   try {
     const [rows] = await db.execute(`
-      SELECT Sno, Products, Description, Facing_Factory, Prd_group, status
+      SELECT Sno, Products, Description, Facing_Factory,
+             Prd_group, Image, status
       FROM product
       ORDER BY Products ASC
     `);
@@ -20,29 +19,22 @@ const listProducts = async (req, res) => {
   }
 };
 
-/* ══════════════════════════════════════
-   GET /api/products/check?Products=&sno=
-══════════════════════════════════════ */
+// GET /api/products/check?Products=xxx
 const checkProductExists = async (req, res) => {
-  const { Products, sno } = req.query;
-  const excludeSno = sno ? parseInt(sno, 10) : null;
+  const { Products } = req.query;
+  if (!Products) return res.json({ exists: false });
+
   try {
-    if (Products) {
-      let q = `SELECT Sno FROM product
-               WHERE LOWER(TRIM(REPLACE(Products,' ',''))) = LOWER(TRIM(REPLACE(?,' ','')))`;
-      const p = [Products];
-      if (excludeSno) {
-        q += " AND Sno <> ?";
-        p.push(excludeSno);
-      }
-      const [rows] = await db.execute(q, p);
-      if (rows.length > 0)
-        return res.json({
-          exists: true,
-          field: "Products",
-          message: "Product already exists.",
-        });
-    }
+    const [rows] = await db.execute(
+      `SELECT Sno FROM product
+       WHERE LOWER(TRIM(Products)) = LOWER(TRIM(?))`,
+      [Products],
+    );
+    if (rows.length > 0)
+      return res.json({
+        exists: true,
+        message: "Product already exists.",
+      });
     return res.json({ exists: false });
   } catch (err) {
     return res
@@ -51,9 +43,40 @@ const checkProductExists = async (req, res) => {
   }
 };
 
-/* ══════════════════════════════════════
-   POST /api/products
-══════════════════════════════════════ */
+// GET /api/products/dropdown/factories
+const getDropdownFactories = async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      `SELECT Data FROM quote_data
+       WHERE LOWER(Type) = 'facingfactory'
+         AND Status = 'Active'
+       ORDER BY Data ASC`,
+    );
+    return res.json(rows.map((r) => r.Data).filter(Boolean));
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: "Error fetching factories", error: err.message });
+  }
+};
+
+// GET /api/products/dropdown/groups
+const getDropdownGroups = async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      `SELECT DISTINCT Prd_group FROM product
+       WHERE Prd_group IS NOT NULL AND Prd_group <> ''
+       ORDER BY Prd_group ASC`,
+    );
+    return res.json(rows.map((r) => r.Prd_group).filter(Boolean));
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: "Error fetching groups", error: err.message });
+  }
+};
+
+// POST /api/products
 const createProduct = async (req, res) => {
   if (!canModify(req.user?.role))
     return res.status(403).json({ message: "Not authorized" });
@@ -65,29 +88,47 @@ const createProduct = async (req, res) => {
       .status(400)
       .json({ message: "Product, Facing Factory and Group are required." });
 
-  Products = Products.trim().toUpperCase();
+  Products = Products.trim();
+  Facing_Factory = Facing_Factory.trim();
+  Prd_group = Prd_group.trim();
   Description =
     Description && Description.trim() !== "" ? Description.trim() : null;
-  Facing_Factory = Facing_Factory.trim().toUpperCase();
-  Prd_group = Prd_group.trim().toUpperCase();
 
   try {
+    // Duplicate check
     const [existing] = await db.execute(
       `SELECT Sno FROM product
-       WHERE LOWER(TRIM(REPLACE(Products,' ',''))) = LOWER(TRIM(REPLACE(?,' ','')))`,
+       WHERE LOWER(TRIM(Products)) = LOWER(TRIM(?))`,
       [Products],
     );
     if (existing.length > 0)
       return res.status(400).json({ message: "Product already exists." });
 
-    const [maxRows] = await db.execute("SELECT MAX(Sno) AS m FROM product");
-    const nextSno = (maxRows[0].m || 0) + 1;
+    // Next Sno for product
+    const [maxPrd] = await db.execute("SELECT MAX(Sno) AS m FROM product");
+    const nextPrdSno = (maxPrd[0].m || 0) + 1;
+
+    // Insert into product
+    await db.execute(
+      `INSERT INTO product
+         (Sno, Products, Description, Facing_Factory, status, Image, Prd_group)
+       VALUES (?, ?, ?, ?, 'Active', 'placeholder.png', ?)`,
+      [nextPrdSno, Products, Description, Facing_Factory, Prd_group],
+    );
+
+    // ✅ Auto-insert into timeline_target with zero targets
+    const [maxTt] = await db.execute(
+      "SELECT MAX(Sno) AS m FROM timeline_target",
+    );
+    const nextTtSno = (maxTt[0].m || 0) + 1;
 
     await db.execute(
-      `INSERT INTO product (Sno, Products, Description, Facing_Factory, Prd_group, status, Image)
-       VALUES (?, ?, ?, ?, ?, 'Active', 'placeholder.png')`,
-      [nextSno, Products, Description, Facing_Factory, Prd_group],
+      `INSERT INTO timeline_target
+         (Sno, Product, Enquiry, Technical_offer, Priced_offer, Price_book_order, Regret, Cancelled)
+       VALUES (?, ?, 0, 0, 0, 0, 0, 0)`,
+      [nextTtSno, Products],
     );
+
     return res.json({ success: true, message: "Product added successfully!" });
   } catch (err) {
     return res
@@ -96,11 +137,7 @@ const createProduct = async (req, res) => {
   }
 };
 
-/* ══════════════════════════════════════
-   PUT /api/products/:sno
-   Locked: Products, Prd_group
-   Editable: Description, Facing_Factory
-══════════════════════════════════════ */
+// PUT /api/products/:sno
 const updateProduct = async (req, res) => {
   if (!canModify(req.user?.role))
     return res.status(403).json({ message: "Not authorized" });
@@ -108,12 +145,12 @@ const updateProduct = async (req, res) => {
   const sno = parseInt(req.params.sno, 10);
   let { Description, Facing_Factory } = req.body;
 
+  if (!Facing_Factory || Facing_Factory.trim() === "")
+    return res.status(400).json({ message: "Facing Factory is required." });
+
   Description =
     Description && Description.trim() !== "" ? Description.trim() : null;
-  Facing_Factory =
-    Facing_Factory && Facing_Factory.trim() !== ""
-      ? Facing_Factory.trim().toUpperCase()
-      : null;
+  Facing_Factory = Facing_Factory.trim();
 
   try {
     const [rows] = await db.execute("SELECT * FROM product WHERE Sno = ?", [
@@ -127,7 +164,9 @@ const updateProduct = async (req, res) => {
         .json({ message: "Inactive records cannot be edited" });
 
     await db.execute(
-      "UPDATE product SET Description = ?, Facing_Factory = ? WHERE Sno = ?",
+      `UPDATE product
+          SET Description = ?, Facing_Factory = ?
+        WHERE Sno = ?`,
       [Description, Facing_Factory, sno],
     );
     return res.json({
@@ -141,9 +180,7 @@ const updateProduct = async (req, res) => {
   }
 };
 
-/* ══════════════════════════════════════
-   PATCH /api/products/:sno/status
-══════════════════════════════════════ */
+// PATCH /api/products/:sno/status
 const toggleProductStatus = async (req, res) => {
   if (!canModify(req.user?.role))
     return res.status(403).json({ message: "Not authorized" });
@@ -170,8 +207,10 @@ const toggleProductStatus = async (req, res) => {
 
 module.exports = {
   listProducts,
+  checkProductExists,
   createProduct,
   updateProduct,
   toggleProductStatus,
-  checkProductExists,
+  getDropdownFactories,
+  getDropdownGroups,
 };
