@@ -639,9 +639,9 @@ const listEnquiries = async (req, res) => {
          Comments
        FROM quote_register
        ${whereClause}
-       ORDER BY RFQ_REG_Date DESC,
-                CAST(SUBSTR(Quote_number, 9, 4) AS UNSIGNED) DESC,
-                Rev`,
+       ORDER BY Quote_number ASC`,
+                // CAST(SUBSTR(Quote_number, 9, 4) AS UNSIGNED) DESC,
+                // Rev`,
       params,
     );
 
