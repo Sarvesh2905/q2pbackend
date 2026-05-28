@@ -564,8 +564,31 @@ const listEnquiries = async (req, res) => {
       date_to,
     } = req.query;
 
+    const loggedInUser = req.user; // { username, role, site } from JWT
+    const role = (loggedInUser.role || "").toLowerCase();
+    const isPrivileged = role === "admin" || role === "manager";
+
     const where = [];
     const params = [];
+
+    /* ── Restrict non-admin/non-manager to their own records ──
+       Look up the Employee_ID for this username, then match Dept_user.
+       If no matching Employee_ID is found, fall back to matching username. ── */
+    if (!isPrivileged) {
+      const [userRows] = await db.execute(
+        "SELECT Employee_ID FROM users WHERE username = ? LIMIT 1",
+        [loggedInUser.username],
+      );
+      const empId = userRows.length ? userRows[0].Employee_ID : null;
+      if (empId) {
+        where.push("Dept_user = ?");
+        params.push(empId);
+      } else {
+        // Fallback: match by username directly
+        where.push("Dept_user = ?");
+        params.push(loggedInUser.username);
+      }
+    }
 
     if (ae) {
       where.push("Dept_user = ?");
@@ -640,8 +663,6 @@ const listEnquiries = async (req, res) => {
        FROM quote_register
        ${whereClause}
        ORDER BY Quote_number ASC`,
-                // CAST(SUBSTR(Quote_number, 9, 4) AS UNSIGNED) DESC,
-                // Rev`,
       params,
     );
 
@@ -691,10 +712,29 @@ const getRegisterFilterOptions = async (req, res) => {
 };
 
 /* ════════════════════════════════════════════════════════
-   21. GET — Download Enquiry Register as CSV
+   21. GET — Download Enquiry Register (user-scoped JSON for Excel)
 ════════════════════════════════════════════════════════ */
 const downloadEnquiries = async (req, res) => {
   try {
+    const loggedInUser = req.user;
+    const role = (loggedInUser.role || "").toLowerCase();
+    const isPrivileged = role === "admin" || role === "manager";
+
+    const where = [];
+    const params = [];
+
+    if (!isPrivileged) {
+      const [userRows] = await db.execute(
+        "SELECT Employee_ID FROM users WHERE username = ? LIMIT 1",
+        [loggedInUser.username],
+      );
+      const empId = userRows.length ? userRows[0].Employee_ID : null;
+      where.push("Dept_user = ?");
+      params.push(empId || loggedInUser.username);
+    }
+
+    const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
     const [rows] = await db.execute(
       `SELECT
          Sno,
@@ -715,35 +755,13 @@ const downloadEnquiries = async (req, res) => {
          Rev,
          Priority
        FROM quote_register
+       ${whereClause}
        ORDER BY RFQ_REG_Date DESC`,
+      params,
     );
 
-    const fields = [
-      "Sno",
-      "ae_name",
-      "Sales_contact",
-      "Quote_number",
-      "quote_date",
-      "price_k",
-      "Customer_name",
-      "End_user_name",
-      "Product",
-      "Project_name",
-      "cust_due_date",
-      "probability",
-      "Quote_stage",
-      "category",
-      "opp_stage",
-      "Rev",
-      "Priority",
-    ];
-
-    res.header("Content-Type", "text/csv");
-    res.header(
-      "Content-Disposition",
-      'attachment; filename="enquiry_register.csv"',
-    );
-    return res.send(toCSV(fields, rows));
+    /* Return JSON — the frontend generates the Excel file using SheetJS */
+    return res.json({ data: rows });
   } catch (err) {
     return res
       .status(500)
